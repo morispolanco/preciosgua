@@ -1,15 +1,11 @@
 import streamlit as st
 import requests
 import pandas as pd
-from together import Together
 import json
 
 # Configurar las claves de API desde los secrets de Streamlit
 serper_api_key = st.secrets["serper_api_key"]
 together_api_key = st.secrets["together_api_key"]
-
-# Configurar la API de Together
-together = Together(together_api_key)
 
 def buscar_productos(query):
     url = "https://google.serper.dev/search"
@@ -21,7 +17,7 @@ def buscar_productos(query):
         'X-API-KEY': serper_api_key,
         'Content-Type': 'application/json'
     }
-    response = requests.request("POST", url, headers=headers, data=payload)
+    response = requests.post(url, headers=headers, data=payload)
     return response.json()
 
 def extraer_precios(resultado):
@@ -41,14 +37,25 @@ def extraer_precios(resultado):
     }}
     """
     
-    response = together.complete(
-        prompt=prompt,
-        model="togethercomputer/llama-2-70b-chat",
-        max_tokens=1000,
-        temperature=0.7
-    )
+    url = "https://api.together.xyz/inference"
+    headers = {
+        "Authorization": f"Bearer {together_api_key}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "togethercomputer/llama-2-70b-chat",
+        "prompt": prompt,
+        "max_tokens": 1000,
+        "temperature": 0.7
+    }
     
-    return json.loads(response['output']['choices'][0]['text'])
+    response = requests.post(url, headers=headers, json=data)
+    if response.status_code == 200:
+        result = response.json()
+        return json.loads(result['output']['choices'][0]['text'])
+    else:
+        st.error(f"Error al llamar a la API de Together: {response.status_code}")
+        return None
 
 def main():
     st.title("Buscador de Precios en Guatemala")
