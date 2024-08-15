@@ -32,8 +32,8 @@ def buscar_productos(query):
 
 def extraer_precios(resultado):
     prompt = f"""
-    Extrae los precios de los productos de la siguiente información:
-    {resultado}
+    Extrae los precios de los productos de la siguiente información de búsqueda:
+    {json.dumps(resultado, ensure_ascii=False)}
     
     Devuelve los resultados en el siguiente formato JSON:
     {{
@@ -45,6 +45,8 @@ def extraer_precios(resultado):
             }}
         ]
     }}
+    
+    Asegúrate de incluir solo productos con precios válidos y en quetzales (Q).
     """
     
     url = "https://api.together.xyz/inference"
@@ -69,6 +71,10 @@ def extraer_precios(resultado):
         logging.error(f"Respuesta de la API: {response.text}")
         st.error(f"Error al extraer precios: {e}")
         return None
+    except json.JSONDecodeError as e:
+        logging.error(f"Error al decodificar la respuesta JSON: {e}")
+        st.error("Error al procesar la respuesta de la API")
+        return None
 
 def main():
     st.title("Buscador de Precios en Guatemala")
@@ -77,28 +83,34 @@ def main():
     
     if st.button("Buscar"):
         with st.spinner("Buscando precios..."):
-            resultados = buscar_productos(query)
-            if resultados:
-                precios = extraer_precios(resultados)
+            resultados_busqueda = buscar_productos(query)
+            if resultados_busqueda:
+                precios = extraer_precios(resultados_busqueda)
                 
                 if precios and 'productos' in precios:
                     df = pd.DataFrame(precios['productos'])
-                    df['precio'] = pd.to_numeric(df['precio'], errors='coerce')
-                    
-                    st.subheader("Resultados:")
-                    st.dataframe(df.sort_values('precio'))
-                    
                     if not df.empty:
-                        precio_min = df['precio'].min()
-                        precio_max = df['precio'].max()
+                        df['precio'] = pd.to_numeric(df['precio'], errors='coerce')
+                        df = df.dropna(subset=['precio'])
                         
-                        st.subheader("Resumen:")
-                        st.write(f"Precio más bajo: Q{precio_min:.2f}")
-                        st.write(f"Precio más alto: Q{precio_max:.2f}")
+                        st.subheader("Resultados:")
+                        st.dataframe(df.sort_values('precio'))
+                        
+                        if not df.empty:
+                            precio_min = df['precio'].min()
+                            precio_max = df['precio'].max()
+                            
+                            st.subheader("Resumen:")
+                            st.write(f"Precio más bajo: Q{precio_min:.2f}")
+                            st.write(f"Precio más alto: Q{precio_max:.2f}")
+                        else:
+                            st.warning("No se encontraron precios válidos para este producto.")
                     else:
-                        st.warning("No se encontraron precios para este producto.")
+                        st.warning("No se encontraron productos con precios válidos.")
                 else:
                     st.error("No se pudo extraer la información de precios.")
+            else:
+                st.error("No se pudieron obtener resultados de búsqueda.")
 
 if __name__ == "__main__":
     main()
