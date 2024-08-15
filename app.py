@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import json
 from datetime import datetime
+from bs4 import BeautifulSoup
 
 # Cargar la API key desde los secrets
 tune_api_key = st.secrets["tune_api_key"]
@@ -39,7 +40,7 @@ def perform_web_search(query):
             {
                 "role": "user",
                 "content": (f"Realiza una búsqueda web sobre los precios actuales del siguiente "
-                            f"producto en Guatemala: {query}. La fecha y hora actual en Guatemala es: {current_date}. "
+                            f"producto en Guatemala: {query}. La fecha y hora actual en Guatemala es: {currentDate}. "
                             "Muestra los resultados en una tabla HTML.")
             }
         ],
@@ -49,6 +50,39 @@ def perform_web_search(query):
     }
     data = fetch_from_api('completions', payload)
     return data['choices'][0]['message']['content']
+
+# Función para extraer precios y encontrar el más alto y más bajo
+def extract_and_display_prices(html_content):
+    soup = BeautifulSoup(html_content, 'html.parser')
+    table = soup.find('table')
+    
+    if not table:
+        st.error("No se encontró una tabla de precios en los resultados.")
+        return
+    
+    prices = []
+    rows = table.find_all('tr')[1:]  # Omitir el encabezado
+    
+    for row in rows:
+        cols = row.find_all('td')
+        if len(cols) >= 3:
+            try:
+                price = float(cols[1].text.strip().replace('Q', '').replace(',', ''))
+                prices.append(price)
+            except ValueError:
+                continue
+    
+    if not prices:
+        st.error("No se encontraron precios válidos en los resultados.")
+        return
+    
+    min_price = min(prices)
+    max_price = max(prices)
+    
+    st.write(f"**Precio más bajo:** Q{min_price}")
+    st.write(f"**Precio más alto:** Q{max_price}")
+    
+    st.markdown(html_content, unsafe_allow_html=True)
 
 # Interfaz de usuario en Streamlit
 st.title("Precios Canasta Básica Guatemala")
@@ -66,7 +100,6 @@ if submit_button:
         with st.spinner("Realizando búsqueda web..."):
             try:
                 search_results = perform_web_search(product_name)
-                st.markdown(search_results, unsafe_allow_html=True)
+                extract_and_display_prices(search_results)
             except Exception as e:
                 st.error(f"Error en la búsqueda web: {e}")
-
