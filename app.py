@@ -6,6 +6,12 @@ import json
 serper_api_key = st.secrets["serper_api_key"]
 together_api_key = st.secrets["together_api_key"]
 
+# Lista de productos de la canasta básica
+basic_basket_products = [
+    "Arroz", "Frijol", "Maíz", "Azúcar", "Leche", 
+    "Huevo", "Aceite", "Tortilla", "Pan", "Carne"
+]
+
 # Función para obtener precios usando la API de Serper
 def get_prices(product_name):
     headers = {
@@ -23,12 +29,12 @@ def get_prices(product_name):
     return prices
 
 # Función para generar la descripción con Together
-def generate_description(product_name, prices):
+def generate_description(prices):
     headers = {
         "Authorization": f"Bearer {together_api_key}",
         "Content-Type": "application/json"
     }
-    prompt = f"Provide a summary of the prices for {product_name} in Guatemala, including the highest and lowest prices."
+    prompt = "Provide a summary of the prices for basic basket products in Guatemala, including the highest and lowest prices."
     
     # Suponiendo que la API de Together recibe un cuerpo JSON con el prompt
     data = {
@@ -39,10 +45,10 @@ def generate_description(product_name, prices):
     return response.json().get("text", "")
 
 # Interfaz de Streamlit
-st.title("Comparador de Precios en Guatemala")
+st.title("Comparador de Precios de la Canasta Básica en Guatemala")
 
-# Input del usuario para el nombre del producto
-product_name = st.text_input("Introduce el nombre del producto:")
+# Input del usuario para seleccionar el producto de la canasta básica
+product_name = st.selectbox("Selecciona un producto de la canasta básica:", basic_basket_products)
 
 if st.button("Buscar Precios"):
     if product_name:
@@ -55,10 +61,10 @@ if st.button("Buscar Precios"):
             st.table(prices_sorted)
             
             # Generar y mostrar la descripción con Together
-            description = generate_description(product_name, prices_sorted)
+            description = generate_description(prices_sorted)
             st.write(description)
         else:
             st.write("No se encontraron precios para el producto solicitado.")
     else:
-        st.write("Por favor, introduce el nombre del producto.")
+        st.write("Por favor, selecciona un producto.")
 
