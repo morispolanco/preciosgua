@@ -5,7 +5,7 @@ import json
 import logging
 
 # Configurar logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 # Configurar las claves de API desde los secrets de Streamlit
 serper_api_key = st.secrets["serper_api_key"]
@@ -49,7 +49,7 @@ def extraer_precios(resultado):
     Asegúrate de incluir solo productos con precios válidos y en quetzales (Q).
     """
     
-    url = "https://api.together.xyz/inference"
+    url = "https://api.together.xyz/v1/completions"
     headers = {
         "Authorization": f"Bearer {together_api_key}",
         "Content-Type": "application/json"
@@ -58,14 +58,20 @@ def extraer_precios(resultado):
         "model": "togethercomputer/llama-2-70b-chat",
         "prompt": prompt,
         "max_tokens": 1000,
-        "temperature": 0.7
+        "temperature": 0.7,
+        "top_p": 0.7,
+        "top_k": 50,
+        "repetition_penalty": 1,
+        "stop": ["</s>", "[/INST]"]
     }
     
     try:
+        logging.debug(f"Enviando solicitud a Together API: {json.dumps(data, indent=2)}")
         response = requests.post(url, headers=headers, json=data)
+        logging.debug(f"Respuesta de Together API: {response.text}")
         response.raise_for_status()
         result = response.json()
-        return json.loads(result['output']['choices'][0]['text'])
+        return json.loads(result['choices'][0]['text'])
     except requests.RequestException as e:
         logging.error(f"Error al llamar a la API de Together: {e}")
         logging.error(f"Respuesta de la API: {response.text}")
