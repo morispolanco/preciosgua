@@ -40,7 +40,7 @@ def perform_web_search(query):
             {
                 "role": "user",
                 "content": (f"Realiza una búsqueda web sobre los precios actuales del siguiente "
-                            f"producto en Guatemala: {query}. La fecha y hora actual en Guatemala es: {currentDate}. "
+                            f"producto en Guatemala: {query}. La fecha y hora actual en Guatemala es: {current_date}. "
                             "Muestra los resultados en una tabla HTML.")
             }
         ],
