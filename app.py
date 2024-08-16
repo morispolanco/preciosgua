@@ -2,10 +2,25 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
+import re
 
 # Configuración de las APIs (las claves se obtienen de los secretos de Streamlit)
 TOGETHER_API_KEY = st.secrets["TOGETHER_API_KEY"]
 SERPER_API_KEY = st.secrets["SERPER_API_KEY"]
+
+def parse_price(price_str):
+    # Elimina cualquier carácter que no sea dígito, punto o guion
+    price_str = re.sub(r'[^\d.-]', '', price_str)
+    try:
+        if '-' in price_str:
+            # Si es un rango, calcula el promedio
+            low, high = map(float, price_str.split('-'))
+            return (low + high) / 2
+        else:
+            return float(price_str)
+    except ValueError:
+        # Si no se puede convertir a float, retorna None
+        return None
 
 def get_product_prices(producto_especifico=None):
     if producto_especifico:
@@ -19,21 +34,25 @@ def get_product_prices(producto_especifico=None):
         Proporciona una lista de 10 productos comunes con sus precios actuales estimados, ordenados del más caro al más barato. 
         Formato de respuesta para cada producto: 'Producto: [nombre], Precio estimado: Q[precio]'"""
 
-    response = requests.post(
-        "https://api.together.xyz/inference",
-        headers={
-            "Authorization": f"Bearer {TOGETHER_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": "togethercomputer/llama-2-70b-chat",
-            "prompt": prompt,
-            "max_tokens": 1024,
-            "temperature": 0.7
-        }
-    )
-    
-    ai_response = response.json()["output"]["choices"][0]["text"].strip()
+    try:
+        response = requests.post(
+            "https://api.together.xyz/inference",
+            headers={
+                "Authorization": f"Bearer {TOGETHER_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "togethercomputer/llama-2-70b-chat",
+                "prompt": prompt,
+                "max_tokens": 1024,
+                "temperature": 0.7
+            }
+        )
+        response.raise_for_status()
+        ai_response = response.json()["output"]["choices"][0]["text"].strip()
+    except requests.RequestException as e:
+        st.error(f"Error al conectar con la API: {str(e)}")
+        return pd.DataFrame()
     
     if "No se encontró información" in ai_response:
         return pd.DataFrame()
@@ -46,12 +65,9 @@ def get_product_prices(producto_especifico=None):
             parts = line.split(',')
             product = parts[0].split(':')[1].strip()
             price_part = parts[1].split(':')[1].strip()
-            if 'Rango:' in price_part:
-                price_range = price_part.split('Rango:')[1].strip().replace('Q', '').split('-')
-                price = sum(float(p.strip()) for p in price_range) / len(price_range)
-            else:
-                price = float(price_part.replace('Q', '').replace(',', '').strip())
-            data.append({"Producto": product, "Precio (Q)": price})
+            price = parse_price(price_part)
+            if price is not None:
+                data.append({"Producto": product, "Precio (Q)": price})
     
     df = pd.DataFrame(data)
     if not producto_especifico and not df.empty:
@@ -84,24 +100,27 @@ if st.button("Obtener precios"):
     # Búsqueda adicional usando Serper API
     if producto_especifico:
         st.subheader("Resultados de búsqueda adicionales")
-        serper_response = requests.post(
-            "https://google.serper.dev/search",
-            headers={
-                "X-API-KEY": SERPER_API_KEY,
-                "Content-Type": "application/json"
-            },
-            json={
-                "q": f"precio {producto_especifico} Guatemala"
-            }
-        )
-        
-        search_results = serper_response.json().get("organic", [])[:3]  # Tomamos los primeros 3 resultados
-        if search_results:
-            for result in search_results:
-                st.write(f"- [{result['title']}]({result['link']})")
-                st.write(result['snippet'])
-        else:
-            st.write("No se encontraron resultados adicionales.")
+        try:
+            serper_response = requests.post(
+                "https://google.serper.dev/search",
+                headers={
+                    "X-API-KEY": SERPER_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "q": f"precio {producto_especifico} Guatemala"
+                }
+            )
+            serper_response.raise_for_status()
+            search_results = serper_response.json().get("organic", [])[:3]  # Tomamos los primeros 3 resultados
+            if search_results:
+                for result in search_results:
+                    st.write(f"- [{result['title']}]({result['link']})")
+                    st.write(result['snippet'])
+            else:
+                st.write("No se encontraron resultados adicionales.")
+        except requests.RequestException as e:
+            st.error(f"Error al buscar información adicional: {str(e)}")
 
 st.markdown("---")
 st.warning("""
