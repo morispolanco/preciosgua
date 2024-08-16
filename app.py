@@ -9,10 +9,16 @@ SERPER_API_KEY = st.secrets["SERPER_API_KEY"]
 
 def get_product_prices(producto_especifico=None):
     if producto_especifico:
-        prompt = f"Proporciona el precio actual en Guatemala del producto: {producto_especifico}. Si no tienes información exacta, proporciona un estimado basado en productos similares. Responde con el formato 'Nombre del producto: precio en quetzales'. Si no puedes encontrar información, responde 'No se encontró información'."
+        prompt = f"""Actúa como un experto en precios de productos en Guatemala. 
+        Proporciona el precio estimado en quetzales para el producto: {producto_especifico}. 
+        Si no tienes información exacta, da un rango de precios basado en productos similares. 
+        Formato de respuesta: 'Producto: [nombre], Precio estimado: Q[precio] o Rango: Q[min]-Q[max]'
+        Si no puedes encontrar información, responde 'No se encontró información para {producto_especifico}'."""
     else:
-        prompt = "Proporciona una lista de 10 productos comunes en Guatemala con sus precios actuales, ordenados del más caro al más barato. Usa el formato 'Nombre del producto: precio en quetzales' para cada línea."
-    
+        prompt = """Actúa como un experto en precios de productos en Guatemala. 
+        Proporciona una lista de 10 productos comunes con sus precios actuales estimados, ordenados del más caro al más barato. 
+        Formato de respuesta para cada producto: 'Producto: [nombre], Precio estimado: Q[precio]'"""
+
     response = requests.post(
         "https://api.together.xyz/inference",
         headers={
@@ -22,28 +28,30 @@ def get_product_prices(producto_especifico=None):
         json={
             "model": "togethercomputer/llama-2-70b-chat",
             "prompt": prompt,
-            "max_tokens": 512,
+            "max_tokens": 1024,
             "temperature": 0.7
         }
     )
     
     ai_response = response.json()["output"]["choices"][0]["text"].strip()
     
-    if ai_response == "No se encontró información":
+    if "No se encontró información" in ai_response:
         return pd.DataFrame()
     
     # Procesamiento de la respuesta para crear un DataFrame
     lines = ai_response.split('\n')
     data = []
     for line in lines:
-        if ':' in line:
-            product, price = line.split(':', 1)
-            product = product.strip()
-            try:
-                price = float(price.replace('Q', '').replace(',', '').strip())
-                data.append({"Producto": product, "Precio (Q)": price})
-            except ValueError:
-                continue  # Ignora líneas que no se pueden convertir a float
+        if 'Producto:' in line and 'Precio estimado:' in line:
+            parts = line.split(',')
+            product = parts[0].split(':')[1].strip()
+            price_part = parts[1].split(':')[1].strip()
+            if 'Rango:' in price_part:
+                price_range = price_part.split('Rango:')[1].strip().replace('Q', '').split('-')
+                price = sum(float(p.strip()) for p in price_range) / len(price_range)
+            else:
+                price = float(price_part.replace('Q', '').replace(',', '').strip())
+            data.append({"Producto": product, "Precio (Q)": price})
     
     df = pd.DataFrame(data)
     if not producto_especifico and not df.empty:
@@ -63,7 +71,7 @@ if st.button("Obtener precios"):
     if df.empty:
         st.warning(f"No se encontró información para el producto: {producto_especifico}")
     else:
-        st.subheader("Tabla de Precios")
+        st.subheader("Información de Precios")
         st.table(df)
 
         if len(df) > 1:
@@ -71,9 +79,7 @@ if st.button("Obtener precios"):
             st.bar_chart(df.set_index("Producto"))
 
         # Información adicional sobre la fecha de actualización
-        st.info(f"Información actualizada al: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-
-        st.warning("Nota: Estos precios son aproximados y pueden variar según la ubicación y el proveedor.")
+        st.info(f"Información estimada al: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 
     # Búsqueda adicional usando Serper API
     if producto_especifico:
@@ -98,4 +104,9 @@ if st.button("Obtener precios"):
             st.write("No se encontraron resultados adicionales.")
 
 st.markdown("---")
-st.write("Esta aplicación utiliza IA para estimar precios. Los resultados pueden no ser completamente precisos.")
+st.warning("""
+Nota importante:
+- Los precios mostrados son estimaciones basadas en IA y pueden no reflejar los precios reales actuales.
+- Los precios pueden variar significativamente según la ubicación, el proveedor y las condiciones del mercado.
+- Para obtener precios precisos, se recomienda consultar directamente con los vendedores o tiendas locales.
+""")
