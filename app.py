@@ -1,105 +1,60 @@
 import streamlit as st
 import requests
-import json
+import pandas as pd
 from datetime import datetime
-from bs4 import BeautifulSoup
 
-# Cargar la API key desde los secrets
-tune_api_key = st.secrets["tune_api_key"]
+# Configuración de las APIs (las claves se obtienen de los secretos de Streamlit)
+TOGETHER_API_KEY = st.secrets["TOGETHER_API_KEY"]
+SERPER_API_KEY = st.secrets["SERPER_API_KEY"]
 
-# Función para realizar la solicitud a la API
-def fetch_from_api(endpoint, payload):
+def get_product_prices():
+    # Llamada a la API de Together para obtener información sobre precios
+    prompt = "Proporciona una lista de 10 productos comunes en Guatemala con sus precios actuales, ordenados del más caro al más barato. Incluye el nombre del producto y su precio en quetzales."
+    
     response = requests.post(
-        f"https://proxy.tune.app/chat/{endpoint}",
+        "https://api.together.xyz/inference",
         headers={
-            'Authorization': tune_api_key,
-            'Content-Type': 'application/json'
+            "Authorization": f"Bearer {TOGETHER_API_KEY}",
+            "Content-Type": "application/json"
         },
-        json=payload
+        json={
+            "model": "togethercomputer/llama-2-70b-chat",
+            "prompt": prompt,
+            "max_tokens": 512,
+            "temperature": 0.7
+        }
     )
-    if response.status_code != 200:
-        raise Exception(f"Error en la respuesta del servidor: {response.status_code}")
-    return response.json()
+    
+    ai_response = response.json()["output"]["choices"][0]["text"]
+    
+    # Procesamiento de la respuesta para crear un DataFrame
+    lines = ai_response.strip().split('\n')
+    data = []
+    for line in lines:
+        parts = line.split(' - Q')
+        if len(parts) == 2:
+            product = parts[0].strip()
+            price = float(parts[1].replace(',', '').strip())
+            data.append({"Producto": product, "Precio (Q)": price})
+    
+    df = pd.DataFrame(data)
+    df = df.sort_values("Precio (Q)", ascending=False)
+    
+    return df
 
-# Función para realizar la búsqueda web
-def perform_web_search(query):
-    current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    payload = {
-        "temperature": 0.7,
-        "messages": [
-            {
-                "role": "system",
-                "content": ("Eres un asistente de búsqueda web especializado en encontrar "
-                            "información actualizada sobre precios de productos en Guatemala. "
-                            "Proporciona un resumen conciso de los resultados más relevantes, "
-                            "incluyendo fuentes confiables cuando sea posible. Formatea tu "
-                            "respuesta en HTML utilizando una tabla para mostrar los resultados. "
-                            "La tabla debe incluir columnas para el producto, precio, lugar y fecha. "
-                            "Incluye la fecha de la búsqueda al principio de tu respuesta.")
-            },
-            {
-                "role": "user",
-                "content": (f"Realiza una búsqueda web sobre los precios actuales del siguiente "
-                            f"producto en Guatemala: {query}. La fecha y hora actual en Guatemala es: {current_date}. "
-                            "Muestra los resultados en una tabla HTML.")
-            }
-        ],
-        "model": "meta/llama-3.1-405b-instruct",
-        "stream": False,
-        "max_tokens": 9000
-    }
-    data = fetch_from_api('completions', payload)
-    return data['choices'][0]['message']['content']
+# Interfaz de Streamlit
+st.title("Precios de Productos en Guatemala")
 
-# Función para extraer precios y encontrar el más alto y más bajo
-def extract_and_display_prices(html_content):
-    soup = BeautifulSoup(html_content, 'html.parser')
-    table = soup.find('table')
+if st.button("Obtener precios"):
+    df = get_product_prices()
     
-    if not table:
-        st.error("No se encontró una tabla de precios en los resultados.")
-        return
-    
-    prices = []
-    rows = table.find_all('tr')[1:]  # Omitir el encabezado
-    
-    for row in rows:
-        cols = row.find_all('td')
-        if len(cols) >= 3:
-            try:
-                price = float(cols[1].text.strip().replace('Q', '').replace(',', ''))
-                prices.append(price)
-            except ValueError:
-                continue
-    
-    if not prices:
-        st.error("No se encontraron precios válidos en los resultados.")
-        return
-    
-    min_price = min(prices)
-    max_price = max(prices)
-    
-    st.write(f"**Precio más bajo:** Q{min_price}")
-    st.write(f"**Precio más alto:** Q{max_price}")
-    
-    st.markdown(html_content, unsafe_allow_html=True)
+    st.subheader("Tabla de Precios (del más alto al más bajo)")
+    st.table(df)
 
-# Interfaz de usuario en Streamlit
-st.title("Precios Canasta Básica Guatemala")
+    st.subheader("Gráfico de Precios")
+    st.bar_chart(df.set_index("Producto"))
 
-st.write("Utiliza nuestra herramienta de búsqueda para encontrar información actualizada sobre los precios de los productos de la canasta básica en Guatemala.")
+    # Información adicional sobre la fecha de actualización
+    st.info(f"Información actualizada al: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 
-with st.form("product_form"):
-    product_name = st.text_input("Escribe el nombre del producto (ej: arroz, frijoles, huevos):")
-    submit_button = st.form_submit_button(label="Buscar")
-
-if submit_button:
-    if product_name.strip() == '':
-        st.error("Por favor, ingresa el nombre de un producto antes de realizar la búsqueda.")
-    else:
-        with st.spinner("Realizando búsqueda web..."):
-            try:
-                search_results = perform_web_search(product_name)
-                extract_and_display_prices(search_results)
-            except Exception as e:
-                st.error(f"Error en la búsqueda web: {e}")
+    st.warning("Nota: Estos precios son aproximados y pueden variar según la ubicación y el proveedor.")
