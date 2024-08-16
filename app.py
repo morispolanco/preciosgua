@@ -9,9 +9,9 @@ SERPER_API_KEY = st.secrets["SERPER_API_KEY"]
 
 def get_product_prices(producto_especifico=None):
     if producto_especifico:
-        prompt = f"Proporciona el precio actual en Guatemala del producto: {producto_especifico}. Si no tienes información exacta, proporciona un estimado basado en productos similares. Incluye el nombre del producto y su precio en quetzales."
+        prompt = f"Proporciona el precio actual en Guatemala del producto: {producto_especifico}. Si no tienes información exacta, proporciona un estimado basado en productos similares. Responde con el formato 'Nombre del producto: precio en quetzales'. Si no puedes encontrar información, responde 'No se encontró información'."
     else:
-        prompt = "Proporciona una lista de 10 productos comunes en Guatemala con sus precios actuales, ordenados del más caro al más barato. Incluye el nombre del producto y su precio en quetzales."
+        prompt = "Proporciona una lista de 10 productos comunes en Guatemala con sus precios actuales, ordenados del más caro al más barato. Usa el formato 'Nombre del producto: precio en quetzales' para cada línea."
     
     response = requests.post(
         "https://api.together.xyz/inference",
@@ -27,20 +27,26 @@ def get_product_prices(producto_especifico=None):
         }
     )
     
-    ai_response = response.json()["output"]["choices"][0]["text"]
+    ai_response = response.json()["output"]["choices"][0]["text"].strip()
+    
+    if ai_response == "No se encontró información":
+        return pd.DataFrame()
     
     # Procesamiento de la respuesta para crear un DataFrame
-    lines = ai_response.strip().split('\n')
+    lines = ai_response.split('\n')
     data = []
     for line in lines:
-        parts = line.split(' - Q')
-        if len(parts) == 2:
-            product = parts[0].strip()
-            price = float(parts[1].replace(',', '').strip())
-            data.append({"Producto": product, "Precio (Q)": price})
+        if ':' in line:
+            product, price = line.split(':', 1)
+            product = product.strip()
+            try:
+                price = float(price.replace('Q', '').replace(',', '').strip())
+                data.append({"Producto": product, "Precio (Q)": price})
+            except ValueError:
+                continue  # Ignora líneas que no se pueden convertir a float
     
     df = pd.DataFrame(data)
-    if not producto_especifico:
+    if not producto_especifico and not df.empty:
         df = df.sort_values("Precio (Q)", ascending=False)
     
     return df
@@ -51,10 +57,11 @@ st.title("Precios de Productos en Guatemala")
 producto_especifico = st.text_input("Especifica un producto (opcional)")
 
 if st.button("Obtener precios"):
-    df = get_product_prices(producto_especifico)
+    with st.spinner("Buscando información de precios..."):
+        df = get_product_prices(producto_especifico)
     
     if df.empty:
-        st.warning("No se encontró información para el producto especificado.")
+        st.warning(f"No se encontró información para el producto: {producto_especifico}")
     else:
         st.subheader("Tabla de Precios")
         st.table(df)
@@ -82,7 +89,13 @@ if st.button("Obtener precios"):
             }
         )
         
-        search_results = serper_response.json()["organic"][:3]  # Tomamos los primeros 3 resultados
-        for result in search_results:
-            st.write(f"- [{result['title']}]({result['link']})")
-            st.write(result['snippet'])
+        search_results = serper_response.json().get("organic", [])[:3]  # Tomamos los primeros 3 resultados
+        if search_results:
+            for result in search_results:
+                st.write(f"- [{result['title']}]({result['link']})")
+                st.write(result['snippet'])
+        else:
+            st.write("No se encontraron resultados adicionales.")
+
+st.markdown("---")
+st.write("Esta aplicación utiliza IA para estimar precios. Los resultados pueden no ser completamente precisos.")
